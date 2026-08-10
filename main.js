@@ -6,9 +6,28 @@ const {
   Tray,
   Menu
 } = require('electron');
+const {
+  initDatabase,
+  addTask,
+  getTasks,
+  updateTask,
+  completeTask,
+  deleteTask
+} = require('./database');
+const { parseTaskText } = require('./taskParser');
 const path = require('path');
 
+const appIcon = path.join(
+    __dirname,
+    'assets',
+    'app',
+    'icon.png'
+  );
+
 let win;
+
+// Separate task management window
+let taskWindow = null;
 
 // -------------------------
 // System tray
@@ -31,6 +50,8 @@ function createWindow() {
     alwaysOnTop: true,
     resizable: false,
 
+    icon: appIcon,
+
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -40,6 +61,46 @@ function createWindow() {
 
   win.loadFile('index.html');
   win.center();
+}
+
+// =====================================================
+// Create Tasks window
+// =====================================================
+
+function createTaskWindow() {
+
+  // If it already exists, just bring it back
+  if (taskWindow) {
+
+    taskWindow.show();
+    taskWindow.focus();
+
+    return;
+  }
+
+
+  taskWindow = new BrowserWindow({
+    width: 550,
+    height: 650,
+
+    title: 'Desktop AI Pet - Tasks',
+    icon: appIcon,
+
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+
+  taskWindow.loadFile('tasks.html');
+
+
+  // Allow it to be created again after closing
+  taskWindow.on('closed', () => {
+    taskWindow = null;
+  });
 }
 
 // -------------------------
@@ -61,6 +122,14 @@ function createTray() {
 
   // 右键菜单
   const contextMenu = Menu.buildFromTemplate([
+
+    {
+      label: 'Tasks',
+
+      click: () => {
+        createTaskWindow();
+      }
+    },
 
     {
       label: 'Show Pet',
@@ -184,7 +253,71 @@ ipcMain.handle('drag:end', () => {
   return result;
 });
 
+// =====================================================
+// Open Tasks window from pet chat
+// =====================================================
+
+ipcMain.handle('task:open-window', () => {
+  createTaskWindow();
+});
+
+// =====================================================
+// Parse natural-language task
+// =====================================================
+
+ipcMain.handle('task:parse-text', (event, text) => {
+  return parseTaskText(text);
+});
+
+// =====================================================
+// Task database IPC
+// =====================================================
+
+// Add task
+ipcMain.handle('task:add', (event, task) => {
+  return addTask(
+    task.title,
+    task.description,
+    task.dueAt,
+    task.priority,
+    task.recurrence || 'none'
+  );
+});
+
+
+// Get all tasks
+ipcMain.handle('task:get-all', () => {
+  return getTasks();
+});
+
+// Update task
+ipcMain.handle('task:update', (event, task) => {
+
+  return updateTask(
+    task.id,
+    task.title,
+    task.description,
+    task.dueAt,
+    task.priority,
+    task.recurrence || 'none'
+  );
+});
+
+// Complete task
+ipcMain.handle('task:complete', (event, id) => {
+  return completeTask(id);
+});
+
+
+// Delete task
+ipcMain.handle('task:delete', (event, id) => {
+  return deleteTask(id);
+});
+
 app.whenReady().then(() => {
+
+  // Initialize local SQLite database
+  initDatabase(app.getPath('userData'));
 
   // 创建桌宠窗口
   createWindow();

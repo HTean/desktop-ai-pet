@@ -38,7 +38,37 @@
 
       box-shadow: 0 2px 8px rgba(0,0,0,0.25);
 
-      pointer-events: none;
+      max-width: 250px;
+      text-align: center;
+    }
+
+    /* 只有进入 Chat 模式时才把气泡加宽 */
+    #bubble.chat-mode {
+      width: 230px;
+    }
+
+    #bubbleText {
+      white-space: pre-line;
+    }
+
+    #chatInput {
+      width: 100%;
+      box-sizing: border-box;
+
+      margin-top: 8px;
+      padding: 7px 9px;
+
+      border: 1px solid #ccc;
+      border-radius: 8px;
+
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+
+      outline: none;
+    }
+
+    #chatInput:focus {
+      border-color: #777;
     }
 
     #pet {
@@ -65,6 +95,26 @@
       pointer-events: none;
     }
 
+    /* Task confirmation buttons */
+    #confirmActions {
+      margin-top: 8px;
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    #confirmActions button {
+      padding: 5px 12px;
+      border: 1px solid #ccc;
+      border-radius: 7px;
+      background: white;
+      cursor: pointer;
+    }
+
+    #confirmActions button:hover {
+      background: #f0f0f0;
+    }
+
   </style>
 </head>
 
@@ -72,7 +122,26 @@
 
 <div id="container">
 
-  <div id="bubble"></div>
+  <div id="bubble">
+
+  <!-- 奶牛说的话 -->
+  <div id="bubbleText"></div>
+
+  <!-- 双击后显示聊天输入框 -->
+  <input
+    id="chatInput"
+    type="text"
+    placeholder="Talk to Nainiu..."
+    style="display: none;"
+  >
+
+  <!-- Task confirmation buttons -->
+  <div id="confirmActions" style="display: none;">
+    <button id="confirmYes">Yes</button>
+    <button id="confirmNo">No</button>
+  </div>
+
+</div>
 
   <div id="pet">
     <img id="petImage" src="assets/pet/idle.png">
@@ -80,11 +149,32 @@
 
 </div>
 
+<script src="i18n.js"></script>
+
 <script>
+// Test commands: "add task"/"添加任务", "show my tasks"/“查看任务”, "open tasks"/“打开任务”
 
 const pet = document.getElementById('pet');
 const petImage = document.getElementById('petImage');
 const bubble = document.getElementById('bubble');
+
+const bubbleText =
+  document.getElementById('bubbleText');
+
+const chatInput =
+  document.getElementById('chatInput');
+
+const confirmActions =
+  document.getElementById('confirmActions');
+
+const confirmYes =
+  document.getElementById('confirmYes');
+
+const confirmNo =
+  document.getElementById('confirmNo');
+
+// 暂时保存等待用户确认的任务
+let pendingTask = null;
 
 let pressed = false;
 let isDragging = false;
@@ -96,6 +186,8 @@ let bubbleTimer;
 let wagTimer;
 let randomStateTimer;
 let sleepTimer;
+let singleClickTimer = null;
+let isChatOpen = false;
 
 
 // =====================================================
@@ -406,14 +498,24 @@ window.addEventListener('pointerup', async () => {
     isDragging = false;
 
     restoreState();
-  }
 
-  // 没有移动 = 点击
-  else {
+  } else {
 
     isDragging = false;
 
-    talk();
+    // 双击已经打开 Chat 时，不再触发普通单击
+    if (isChatOpen) return;
+
+    clearTimeout(singleClickTimer);
+
+    singleClickTimer = setTimeout(() => {
+
+      // Timer 执行前再检查一次
+      if (!isChatOpen) {
+        talk();
+      }
+
+    }, 250);
   }
 
 });
@@ -435,18 +537,18 @@ function talk() {
   showImage('talk');
 
 
-  const messages = [
-    "干嘛？",
-    "我在呢。",
-    "今天有什么要做的吗？",
-    "别戳我。",
-    "你好 👀"
-  ];
+  // Get pet messages from current language
+  const messages = window.i18n.t('petMessages');
 
   const message =
     messages[Math.floor(Math.random() * messages.length)];
 
-  bubble.innerText = message;
+  // 普通说话模式，不显示输入框
+  bubble.classList.remove('chat-mode');
+
+  chatInput.style.display = 'none';
+
+  bubbleText.textContent = message;
 
   bubble.style.display = 'block';
 
@@ -472,25 +574,343 @@ function talk() {
   }, 2500);
 }
 
+// =====================================================
+// 双击奶牛：打开 Chat 输入框
+// =====================================================
+
+pet.addEventListener('dblclick', () => {
+
+    pendingTask = null;
+    confirmActions.style.display = 'none';
+
+    // 锁定 Chat 模式
+    isChatOpen = true;
+
+    // 取消等待中的普通单击
+    clearTimeout(singleClickTimer);
+
+    // 取消普通说话框的自动关闭 timer
+    clearTimeout(bubbleTimer);
+
+    resetSleepTimer();
+
+    bubble.classList.add('chat-mode');
+
+    bubbleText.textContent =
+      window.i18n.t('chatPrompt');
+
+    chatInput.placeholder =
+      window.i18n.t('chatPlaceholder');
+
+    chatInput.value = '';
+    chatInput.style.display = 'block';
+
+    bubble.style.display = 'block';
+
+    setTimeout(() => {
+      chatInput.focus();
+    }, 50);
+  });
+
+// =====================================================
+// Chat input
+// 目前只测试输入，之后再接 Task / AI
+// =====================================================
+
+chatInput.addEventListener('keydown', async (event) => {
+
+// =====================================================
+// Enter = process chat command
+// =====================================================
+
+if (event.key === 'Enter') {
+
+    const text = chatInput.value.trim();
+
+    if (!text) return;
+
+    // Lowercase version only for checking commands
+    const command = text.toLowerCase();
+
+
+    // -------------------------------------------------
+    // 1. Add task
+    // Example:
+    // add task Buy groceries
+    // -------------------------------------------------
+
+    if (
+        command.startsWith('add task ') ||
+        /^添加任务[:：]?\s*/.test(text)
+      ) {
+
+        const title =
+          command.startsWith('add task ')
+            ? text.substring(9).trim()
+            : text.replace(/^添加任务[:：]?\s*/, '').trim();
+
+      if (!title) return;
+
+      await window.petAPI.addTask({
+        title: title,
+        description: '',
+        dueAt: null,
+        priority: 'normal'
+      });
+
+      bubbleText.textContent =
+        window.i18n.t('taskAdded', { title });
+    }
+
+
+    // -------------------------------------------------
+    // 2. Show number of pending tasks
+    // -------------------------------------------------
+
+    else if (
+        command === 'show my tasks' ||
+        command === 'show tasks' ||
+        command === '查看我的任务' ||
+        command === '查看任务'
+      ) {
+
+      const tasks =
+        await window.petAPI.getTasks();
+
+      const pendingTasks =
+        tasks.filter(
+          task => task.status !== 'completed'
+        );
+
+      if (pendingTasks.length === 0) {
+
+        bubbleText.textContent =
+          window.i18n.t('noPendingTasks');
+
+      } else if (pendingTasks.length === 1) {
+
+        bubbleText.textContent =
+          window.i18n.t('onePendingTask');
+
+      } else {
+
+        bubbleText.textContent =
+          window.i18n.t(
+            'multiplePendingTasks',
+            { count: pendingTasks.length }
+          );
+      }
+    }
+
+
+    // -------------------------------------------------
+    // 3. Open full Tasks window
+    // -------------------------------------------------
+
+    else if (
+        command === 'open tasks' ||
+        command === 'open my tasks' ||
+        command === '打开任务' ||
+        command === '打开我的任务'
+      ) {
+
+      bubbleText.textContent =
+        window.i18n.t('openingTasks');
+
+      await window.petAPI.openTasksWindow();
+    }
+
+
+    // -------------------------------------------------
+    // Unknown command
+    // -------------------------------------------------
+
+    else {
+
+      // 尝试从自然语言中识别任务 + 日期/时间
+      const parsedTask =
+        await window.petAPI.parseTaskText(text);
+
+
+      // 只有识别到了任务内容 + 日期/时间
+      // 才自动判断为 Task
+      if (
+        parsedTask.title &&
+        parsedTask.dueAt
+      ) {
+
+        // 暂存任务，等待用户确认
+        pendingTask = parsedTask;
+
+
+        // Translate recurrence value
+        const recurrenceText = {
+          daily: window.i18n.t('recurrenceDaily'),
+          weekly: window.i18n.t('recurrenceWeekly'),
+          monthly: window.i18n.t('recurrenceMonthly')
+        }[parsedTask.recurrence];
+
+
+        // 使用当前语言显示确认信息
+        bubbleText.textContent =
+          `${window.i18n.t('taskLabel')}: ${parsedTask.title}\n` +
+          `${window.i18n.t('dueLabel')}: ${parsedTask.dueAt}\n` +
+          (
+            recurrenceText
+              ? `${window.i18n.t('recurrenceLabel')}: ${recurrenceText}\n`
+              : ''
+          ) +
+          window.i18n.t('addThisTask');
+
+
+        // 隐藏输入框
+        chatInput.style.display = 'none';
+
+
+        // 显示 Yes / No
+        confirmActions.style.display = 'flex';
+
+
+        // 保持 Chat 开启
+        isChatOpen = true;
+
+
+        // 不执行下面关闭 Chat 的代码
+        return;
+
+      } else {
+
+        // 没识别到时间 → 普通聊天
+        bubbleText.textContent =
+          window.i18n.t('youSaid', { text });
+      }
+    }
+
+
+    // Hide input after command
+    chatInput.value = '';
+    chatInput.style.display = 'none';
+
+    bubble.classList.remove('chat-mode');
+
+    isChatOpen = false;
+
+
+    // Keep response visible briefly
+    clearTimeout(bubbleTimer);
+
+    bubbleTimer = setTimeout(() => {
+      bubble.style.display = 'none';
+    }, 2500);
+  }
+
+
+  // Escape
+  if (event.key === 'Escape') {
+
+    isChatOpen = false;
+
+    chatInput.value = '';
+    chatInput.style.display = 'none';
+    bubble.classList.remove('chat-mode');
+    bubble.style.display = 'none';
+  }
+});
+
+// =====================================================
+// Confirm task: Yes
+// =====================================================
+
+confirmYes.addEventListener('click', async () => {
+
+  if (!pendingTask) return;
+
+  // 用户确认后才真正写入 SQLite
+  await window.petAPI.addTask(pendingTask);
+
+  bubbleText.textContent =
+    window.i18n.t(
+      'taskAdded',
+      { title: pendingTask.title }
+    );
+
+  pendingTask = null;
+
+  confirmActions.style.display = 'none';
+
+  isChatOpen = false;
+
+  clearTimeout(bubbleTimer);
+
+  bubbleTimer = setTimeout(() => {
+    bubble.style.display = 'none';
+  }, 1800);
+});
+
+
+// =====================================================
+// Confirm task: No
+// =====================================================
+
+confirmNo.addEventListener('click', () => {
+
+  pendingTask = null;
+
+  confirmActions.style.display = 'none';
+
+  bubbleText.textContent =
+    window.i18n.t('taskRejected');
+
+  isChatOpen = false;
+
+  clearTimeout(bubbleTimer);
+
+  bubbleTimer = setTimeout(() => {
+    bubble.style.display = 'none';
+  }, 1500);
+});
+
+// =====================================================
+// 点击奶牛窗口外 → 关闭对话框
+// =====================================================
+
+window.addEventListener('blur', () => {
+
+  isChatOpen = false;
+
+  chatInput.value = '';
+  chatInput.style.display = 'none';
+
+  bubble.classList.remove('chat-mode');
+
+  bubble.style.display = 'none';
+});
+
 
 // =====================================================
 // 透明区域鼠标穿透
+// 奶牛和聊天气泡都需要接收鼠标事件
 // =====================================================
 
 document.addEventListener('mousemove', (event) => {
 
-  const element =
-    document.elementFromPoint(
-      event.clientX,
-      event.clientY
-    );
-
-  const onPet = element && (
-    element.id === 'pet' ||
-    element.closest('#pet')
+  const element = document.elementFromPoint(
+    event.clientX,
+    event.clientY
   );
 
-  window.petAPI.setIgnoreMouseEvents(!onPet);
+  // 奶牛或者聊天气泡上 = 不穿透
+  const onInteractiveArea = element && (
+    element.id === 'pet' ||
+    element.closest('#pet') ||
+    element.id === 'bubble' ||
+    element.closest('#bubble')
+  );
+
+  // 其他透明区域 = 鼠标穿透到底下的软件
+  window.petAPI.setIgnoreMouseEvents(
+    !onInteractiveArea
+  );
 });
 
 
@@ -506,6 +926,10 @@ document.addEventListener('contextmenu', (event) => {
 // =====================================================
 // 启动宠物系统
 // =====================================================
+
+// Apply current language to confirmation buttons
+confirmYes.textContent = window.i18n.t('yes');
+confirmNo.textContent = window.i18n.t('no');
 
 showImage('idle');
 

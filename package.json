@@ -3,7 +3,8 @@
   "build": {
     "appId": "com.desktopaipet.app",
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/app/icon.png"
     },
     "nsis": {
       "oneClick": false,
@@ -11,7 +12,7 @@
     }
   },
   "name": "desktop-ai-pet",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -28,5 +29,8 @@
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true
+  },
+  "dependencies": {
+    "chrono-node": "^2.10.1"
   }
 }

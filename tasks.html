@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Tasks</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      color: #222;
+    }
+
+    h1 {
+      margin-top: 0;
+    }
+
+    #taskForm {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 25px;
+    }
+
+    input,
+    textarea,
+    select,
+    button {
+      font: inherit;
+    }
+
+    input,
+    textarea,
+    select {
+      padding: 9px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+
+    textarea {
+      min-height: 60px;
+      resize: vertical;
+    }
+
+    button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    #addButton {
+      background: #222;
+      color: white;
+    }
+
+    .task {
+      background: white;
+      padding: 14px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+
+    .task.completed {
+      opacity: 0.55;
+    }
+
+    .taskTitle {
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .taskDescription {
+      margin-top: 6px;
+    }
+
+    .taskInfo {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .taskActions {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1 id="tasksHeading">Tasks</h1>
+
+<!-- Add new task -->
+<form id="taskForm">
+
+  <input
+    id="title"
+    type="text"
+    placeholder="What do you need to do?"
+    required
+  >
+
+  <textarea
+    id="description"
+    placeholder="Description (optional)"
+  ></textarea>
+
+  <input
+    id="dueAt"
+    type="datetime-local"
+  >
+
+  <select id="priority">
+    <option id="priorityLowOption" value="low">Low Priority</option>
+    <option id="priorityNormalOption" value="normal" selected>Normal Priority</option>
+    <option id="priorityHighOption" value="high">High Priority</option>
+  </select>
+
+  <select id="recurrence">
+    <option id="recurrenceNoneOption" value="none">Does not repeat</option>
+    <option id="recurrenceDailyOption" value="daily">Daily</option>
+    <option id="recurrenceWeeklyOption" value="weekly">Weekly</option>
+    <option id="recurrenceMonthlyOption" value="monthly">Monthly</option>
+  </select>
+
+  <button id="addButton" type="submit">
+    Add Task
+  </button>
+
+</form>
+
+<!-- Existing tasks -->
+<div id="taskList"></div>
+
+
+<script src="i18n.js"></script>
+
+<script>
+
+const taskForm = document.getElementById('taskForm');
+const taskList = document.getElementById('taskList');
+const addButton = document.getElementById('addButton');
+
+// =====================================================
+// Apply current language to Tasks window
+// =====================================================
+
+function applyLanguage() {
+
+    document.title =
+        window.i18n.t('tasksTitle');
+
+    document.getElementById('tasksHeading').textContent =
+        window.i18n.t('tasksTitle');
+
+    document.getElementById('title').placeholder =
+        window.i18n.t('taskTitlePlaceholder');
+
+    document.getElementById('description').placeholder =
+        window.i18n.t('taskDescriptionPlaceholder');
+
+    document.getElementById('priorityLowOption').textContent =
+        window.i18n.t('lowPriority');
+
+    document.getElementById('priorityNormalOption').textContent =
+        window.i18n.t('normalPriority');
+
+    document.getElementById('priorityHighOption').textContent =
+         window.i18n.t('highPriority');
+
+    document.getElementById('recurrenceNoneOption').textContent =
+        window.i18n.t('recurrenceNone');
+
+    document.getElementById('recurrenceDailyOption').textContent =
+        window.i18n.t('recurrenceDaily');
+
+    document.getElementById('recurrenceWeeklyOption').textContent =
+        window.i18n.t('recurrenceWeekly');
+
+    document.getElementById('recurrenceMonthlyOption').textContent =
+        window.i18n.t('recurrenceMonthly');
+    
+    addButton.textContent =
+        window.i18n.t('addTask');
+}
+
+// null = adding a new task
+// number = editing an existing task
+let editingTaskId = null;
+
+
+// =====================================================
+// Load all tasks
+// =====================================================
+
+async function loadTasks() {
+
+  const tasks = await window.petAPI.getTasks();
+
+  taskList.innerHTML = '';
+
+  if (tasks.length === 0) {
+
+    const empty = document.createElement('p');
+    empty.textContent =
+        window.i18n.t('noTasksYet');
+
+    taskList.appendChild(empty);
+
+    return;
+  }
+
+
+  tasks.forEach(task => {
+
+    const taskElement = document.createElement('div');
+    taskElement.className = 'task';
+
+    if (task.status === 'completed') {
+      taskElement.classList.add('completed');
+    }
+
+
+    // Task title
+    const title = document.createElement('div');
+
+    title.className = 'taskTitle';
+    title.textContent = task.title;
+
+    taskElement.appendChild(title);
+
+
+    // Task description
+    if (task.description) {
+
+      const description = document.createElement('div');
+
+      description.className = 'taskDescription';
+      description.textContent = task.description;
+
+      taskElement.appendChild(description);
+    }
+
+
+    // Deadline / priority / status
+    const info = document.createElement('div');
+
+    info.className = 'taskInfo';
+
+    const dueText =
+        task.due_at
+            ? `${window.i18n.t('dueLabel')}: ${task.due_at}`
+            : window.i18n.t('noDeadline');
+
+
+    // Translate stored priority value
+    const priorityText = {
+        low: window.i18n.t('priorityLow'),
+        normal: window.i18n.t('priorityNormal'),
+        high: window.i18n.t('priorityHigh')
+        }[task.priority] || task.priority;
+
+
+    // Translate stored status value
+    const statusText = {
+        pending: window.i18n.t('statusPending'),
+        completed: window.i18n.t('statusCompleted')
+        }[task.status] || task.status;
+
+
+    const recurrenceText = {
+        none: window.i18n.t('recurrenceNone'),
+        daily: window.i18n.t('recurrenceDaily'),
+        weekly: window.i18n.t('recurrenceWeekly'),
+        monthly: window.i18n.t('recurrenceMonthly')
+        }[task.recurrence || 'none'];
+
+    info.textContent =
+        `${dueText} | ` +
+        `${window.i18n.t('priorityLabel')}: ${priorityText} | ` +
+        `${window.i18n.t('recurrenceLabel')}: ${recurrenceText} | ` +
+        `${window.i18n.t('statusLabel')}: ${statusText}`;
+
+    taskElement.appendChild(info);
+
+
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.className = 'taskActions';
+
+
+    // -------------------------
+    // Edit
+    // -------------------------
+
+    const editButton = document.createElement('button');
+
+    editButton.textContent =
+        window.i18n.t('edit');
+
+    editButton.addEventListener('click', () => {
+
+    // Put existing task information into the form
+    document.getElementById('title').value =
+        task.title || '';
+
+    document.getElementById('description').value =
+        task.description || '';
+
+    document.getElementById('dueAt').value =
+        task.due_at || '';
+
+    document.getElementById('priority').value =
+        task.priority || 'normal';
+
+    document.getElementById('recurrence').value =
+        task.recurrence || 'none';
+
+    // Remember which task is being edited
+    editingTaskId = task.id;
+
+    // Change submit button text
+    addButton.textContent =
+        window.i18n.t('saveChanges');
+
+    // Scroll back to form
+    window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+    });
+    });
+
+    actions.appendChild(editButton);
+
+    // Complete
+    if (task.status !== 'completed') {
+
+      const completeButton =
+        document.createElement('button');
+
+      completeButton.textContent =
+        window.i18n.t('complete');
+
+      completeButton.addEventListener('click', async () => {
+
+        await window.petAPI.completeTask(task.id);
+
+        loadTasks();
+      });
+
+      actions.appendChild(completeButton);
+    }
+
+
+    // Delete
+    const deleteButton =
+      document.createElement('button');
+
+    deleteButton.textContent =
+        window.i18n.t('delete');
+
+    deleteButton.addEventListener('click', async () => {
+
+      await window.petAPI.deleteTask(task.id);
+
+      loadTasks();
+    });
+
+    actions.appendChild(deleteButton);
+
+    taskElement.appendChild(actions);
+
+    taskList.appendChild(taskElement);
+  });
+}
+
+
+// =====================================================
+// Add / Edit task
+// =====================================================
+
+taskForm.addEventListener('submit', async (event) => {
+
+  event.preventDefault();
+
+
+  const task = {
+
+    title:
+      document.getElementById('title').value.trim(),
+
+    description:
+      document.getElementById('description').value.trim(),
+
+    dueAt:
+      document.getElementById('dueAt').value || null,
+
+    priority:
+        document.getElementById('priority').value,
+
+    recurrence:
+        document.getElementById('recurrence').value
+  };
+
+
+  // -------------------------
+  // Edit existing task
+  // -------------------------
+
+  if (editingTaskId !== null) {
+
+    task.id = editingTaskId;
+
+    await window.petAPI.updateTask(task);
+
+    editingTaskId = null;
+
+    addButton.textContent =
+        window.i18n.t('addTask');
+  }
+
+
+  // -------------------------
+  // Add new task
+  // -------------------------
+
+  else {
+
+    await window.petAPI.addTask(task);
+  }
+
+
+  // Clear form
+  taskForm.reset();
+
+  // Then load tasks
+  loadTasks();
+});
+
+// =====================================================
+// Initial load
+// =====================================================
+
+// Apply current UI language first
+applyLanguage();
+
+// Initial load
+loadTasks();
+
+</script>
+
+</body>
+</html>
