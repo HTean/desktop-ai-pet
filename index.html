@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #container {
+      width: 100%;
+      height: 100%;
+
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    #bubble {
+      display: none;
+
+      background: white;
+      color: black;
+
+      padding: 10px 14px;
+      border-radius: 15px;
+      margin-bottom: 5px;
+
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+
+      pointer-events: none;
+    }
+
+    #pet {
+      width: 200px;
+      height: 200px;
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      font-size: 120px;
+      cursor: grab;
+    }
+
+    #pet:active {
+      cursor: grabbing;
+    }
+
+    /* 宠物图片 */
+    #petImage {
+      width: 180px;
+      height: 180px;
+      object-fit: contain;
+      pointer-events: none;
+    }
+
+  </style>
+</head>
+
+<body>
+
+<div id="container">
+
+  <div id="bubble"></div>
+
+  <div id="pet">
+    <img id="petImage" src="assets/pet/idle.png">
+  </div>
+
+</div>
+
+<script>
+
+const pet = document.getElementById('pet');
+const petImage = document.getElementById('petImage');
+const bubble = document.getElementById('bubble');
+
+let pressed = false;
+let isDragging = false;
+let isHovering = false;
+let isTalking = false;
+let isSleeping = false;
+
+let bubbleTimer;
+let wagTimer;
+let randomStateTimer;
+let sleepTimer;
+
+
+// =====================================================
+// 图片路径
+// =====================================================
+
+const images = {
+  idle: 'assets/pet/idle.png',
+  idle2: 'assets/pet/idle2.png',
+  idle3: 'assets/pet/idle3.png',
+  blink: 'assets/pet/blink.png',
+  happy: 'assets/pet/happy.png',
+  talk: 'assets/pet/talk.png',
+  walk: 'assets/pet/walk.png',
+  sleep: 'assets/pet/sleep.png'
+};
+
+
+// =====================================================
+// 基础状态
+// =====================================================
+
+function showImage(state) {
+  petImage.src = images[state];
+}
+
+
+// 根据当前情况恢复正确状态
+function restoreState() {
+
+  if (isDragging) {
+    showImage('walk');
+    return;
+  }
+
+  if (isTalking) {
+    showImage('talk');
+    return;
+  }
+
+  if (isSleeping) {
+    showImage('sleep');
+    return;
+  }
+
+  if (isHovering) {
+    startWagging();
+    return;
+  }
+
+  showImage('idle');
+}
+
+
+// =====================================================
+// 摇尾巴
+// hover 时 idle2 / idle3 循环
+// =====================================================
+
+function startWagging() {
+
+  if (wagTimer) return;
+
+  let useIdle2 = true;
+
+  wagTimer = setInterval(() => {
+
+    // 更高优先级状态出现时，不摇尾巴
+    if (
+      !isHovering ||
+      isDragging ||
+      isTalking ||
+      isSleeping
+    ) {
+      return;
+    }
+
+    showImage(useIdle2 ? 'idle2' : 'idle3');
+
+    useIdle2 = !useIdle2;
+
+  }, 250);
+}
+
+
+function stopWagging() {
+
+  clearInterval(wagTimer);
+
+  wagTimer = null;
+}
+
+
+// =====================================================
+// 睡眠系统
+// 2 分钟没有互动 → sleep
+// =====================================================
+
+function resetSleepTimer() {
+
+  clearTimeout(sleepTimer);
+
+  // 有互动就醒来
+  if (isSleeping) {
+    isSleeping = false;
+  }
+
+  sleepTimer = setTimeout(() => {
+
+    // 正在互动时不睡
+    if (
+      pressed ||
+      isDragging ||
+      isTalking ||
+      isHovering
+    ) {
+      resetSleepTimer();
+      return;
+    }
+
+    isSleeping = true;
+
+    stopWagging();
+
+    showImage('sleep');
+
+  }, 2 * 60 * 1000);
+}
+
+
+// =====================================================
+// 随机状态
+// 每 8～40 秒随机 idle / blink / happy
+// =====================================================
+
+function scheduleRandomState() {
+
+  clearTimeout(randomStateTimer);
+
+  const delay =
+    8000 + Math.random() * 32000;
+
+  randomStateTimer = setTimeout(() => {
+
+    // 正在进行其他行为时，这次随机动作跳过
+    if (
+      pressed ||
+      isDragging ||
+      isTalking ||
+      isSleeping ||
+      isHovering
+    ) {
+      scheduleRandomState();
+      return;
+    }
+
+
+    const states = [
+      'idle',
+      'blink',
+      'happy'
+    ];
+
+    const state =
+      states[Math.floor(Math.random() * states.length)];
+
+
+    // -------------------------
+    // idle
+    // -------------------------
+
+    if (state === 'idle') {
+
+      showImage('idle');
+
+      scheduleRandomState();
+    }
+
+
+    // -------------------------
+    // blink
+    // -------------------------
+
+    else if (state === 'blink') {
+
+      showImage('blink');
+
+      setTimeout(() => {
+
+        restoreState();
+
+        scheduleRandomState();
+
+      }, 150);
+    }
+
+
+    // -------------------------
+    // happy
+    // -------------------------
+
+    else if (state === 'happy') {
+
+      showImage('happy');
+
+      // Happy 持续 8～20 秒
+      const duration =
+        8000 + Math.random() * 12000;
+
+      setTimeout(() => {
+
+        restoreState();
+
+        scheduleRandomState();
+
+      }, duration);
+    }
+
+  }, delay);
+}
+
+
+// =====================================================
+// Hover
+// 鼠标放到宠物上 → 摇尾巴
+// =====================================================
+
+pet.addEventListener('mouseenter', () => {
+
+  isHovering = true;
+
+  resetSleepTimer();
+
+  // 睡觉时鼠标靠近 → 醒来
+  isSleeping = false;
+
+  startWagging();
+});
+
+
+pet.addEventListener('mouseleave', () => {
+
+  isHovering = false;
+
+  stopWagging();
+
+  if (
+    !isDragging &&
+    !isTalking &&
+    !isSleeping
+  ) {
+    showImage('idle');
+  }
+});
+
+
+// =====================================================
+// 按下宠物
+// =====================================================
+
+pet.addEventListener('pointerdown', () => {
+
+  pressed = true;
+  isDragging = false;
+
+  resetSleepTimer();
+
+  window.petAPI.startDrag();
+});
+
+
+// =====================================================
+// 鼠标移动
+// 按住后移动 → walk
+// =====================================================
+
+window.addEventListener('pointermove', () => {
+
+  if (!pressed) return;
+
+  isDragging = true;
+
+  stopWagging();
+
+  showImage('walk');
+
+  window.petAPI.moveDrag();
+});
+
+
+// =====================================================
+// 松开
+// =====================================================
+
+window.addEventListener('pointerup', async () => {
+
+  if (!pressed) return;
+
+  pressed = false;
+
+  const moved =
+    await window.petAPI.endDrag();
+
+
+  // Electron 判断确实发生了拖动
+  if (moved) {
+
+    isDragging = false;
+
+    restoreState();
+  }
+
+  // 没有移动 = 点击
+  else {
+
+    isDragging = false;
+
+    talk();
+  }
+
+});
+
+
+// =====================================================
+// 点击说话
+// =====================================================
+
+function talk() {
+
+  resetSleepTimer();
+
+  stopWagging();
+
+  isTalking = true;
+
+  // 切换说话图片
+  showImage('talk');
+
+
+  const messages = [
+    "干嘛？",
+    "我在呢。",
+    "今天有什么要做的吗？",
+    "别戳我。",
+    "你好 👀"
+  ];
+
+  const message =
+    messages[Math.floor(Math.random() * messages.length)];
+
+  bubble.innerText = message;
+
+  bubble.style.display = 'block';
+
+
+  // talk.png 显示 700ms
+  setTimeout(() => {
+
+    isTalking = false;
+
+    restoreState();
+
+  }, 700);
+
+
+  clearTimeout(bubbleTimer);
+
+
+  // 对话框 2.5 秒后消失
+  bubbleTimer = setTimeout(() => {
+
+    bubble.style.display = 'none';
+
+  }, 2500);
+}
+
+
+// =====================================================
+// 透明区域鼠标穿透
+// =====================================================
+
+document.addEventListener('mousemove', (event) => {
+
+  const element =
+    document.elementFromPoint(
+      event.clientX,
+      event.clientY
+    );
+
+  const onPet = element && (
+    element.id === 'pet' ||
+    element.closest('#pet')
+  );
+
+  window.petAPI.setIgnoreMouseEvents(!onPet);
+});
+
+
+// =====================================================
+// 禁用默认右键菜单
+// =====================================================
+
+document.addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+});
+
+
+// =====================================================
+// 启动宠物系统
+// =====================================================
+
+showImage('idle');
+
+scheduleRandomState();
+
+resetSleepTimer();
+
+</script>
+
+</body>
+</html>
