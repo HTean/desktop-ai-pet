@@ -110,10 +110,39 @@
     placeholder="Description (optional)"
   ></textarea>
 
-  <input
-    id="dueAt"
-    type="datetime-local"
-  >
+    <label id="taskTimeLabel" for="dueAt">
+        Task time
+    </label>
+
+    <input
+        id="dueAt"
+        type="datetime-local"
+    >
+
+    <label id="reminderLabel" for="reminderChoice">
+    Reminder
+    </label>
+
+    <select id="reminderChoice">
+    <option id="reminderNoneOption" value="none">No reminder</option>
+    <option id="reminderAtTimeOption" value="0">At task time</option>
+    <option id="reminder5Option" value="5">5 minutes before</option>
+    <option id="reminder15Option" value="15">15 minutes before</option>
+    <option id="reminder30Option" value="30">30 minutes before</option>
+    <option id="reminder60Option" value="60">1 hour before</option>
+    <option id="reminderCustomOption" value="custom">Custom time</option>
+    </select>
+
+    <div id="customReminderContainer" style="display: none;">
+    <label id="customReminderLabel" for="customRemindAt">
+        Custom reminder time
+    </label>
+
+    <input
+        id="customRemindAt"
+        type="datetime-local"
+    >
+    </div>
 
   <select id="priority">
     <option id="priorityLowOption" value="low">Low Priority</option>
@@ -187,12 +216,171 @@ function applyLanguage() {
     
     addButton.textContent =
         window.i18n.t('addTask');
+
+    document.getElementById('reminderLabel').textContent =
+        window.i18n.t('reminderLabel');
+
+    document.getElementById('taskTimeLabel').textContent =
+        window.i18n.t('taskTimeLabel');
+
+        document.getElementById('reminderNoneOption').textContent =
+        window.i18n.t('reminderNone');
+
+        document.getElementById('reminderAtTimeOption').textContent =
+        window.i18n.t('reminderAtTime');
+
+        document.getElementById('reminder5Option').textContent =
+        window.i18n.t('reminder5Minutes');
+
+        document.getElementById('reminder15Option').textContent =
+        window.i18n.t('reminder15Minutes');
+
+        document.getElementById('reminder30Option').textContent =
+        window.i18n.t('reminder30Minutes');
+
+        document.getElementById('reminder60Option').textContent =
+        window.i18n.t('reminder1Hour');
+
+        document.getElementById('reminderCustomOption').textContent =
+        window.i18n.t('reminderCustom');
+
+        document.getElementById('customReminderLabel').textContent =
+        window.i18n.t('customReminderLabel');
 }
 
 // null = adding a new task
 // number = editing an existing task
 let editingTaskId = null;
 
+let editingReminderId = null;
+
+
+const reminderChoice =
+  document.getElementById('reminderChoice');
+
+const customReminderContainer =
+  document.getElementById('customReminderContainer');
+
+const customRemindAt =
+  document.getElementById('customRemindAt');
+
+
+reminderChoice.addEventListener('change', () => {
+
+  customReminderContainer.style.display =
+    reminderChoice.value === 'custom'
+      ? 'block'
+      : 'none';
+});
+
+
+function calculateReminderTime(
+  dueAt,
+  choice,
+  customTime
+) {
+
+  if (choice === 'none') {
+    return null;
+  }
+
+  if (choice === 'custom') {
+    return customTime || null;
+  }
+
+  if (!dueAt) {
+    return null;
+  }
+
+  const dueDate =
+    new Date(dueAt);
+
+  const minutesBefore =
+    Number(choice);
+
+  dueDate.setMinutes(
+    dueDate.getMinutes() - minutesBefore
+  );
+
+  const pad = value =>
+    String(value).padStart(2, '0');
+
+  return (
+    dueDate.getFullYear() +
+    '-' +
+    pad(dueDate.getMonth() + 1) +
+    '-' +
+    pad(dueDate.getDate()) +
+    'T' +
+    pad(dueDate.getHours()) +
+    ':' +
+    pad(dueDate.getMinutes())
+  );
+}
+
+
+function loadReminderIntoForm(
+  task,
+  reminder
+) {
+
+  editingReminderId =
+    reminder ? reminder.id : null;
+
+  customRemindAt.value = '';
+
+  if (!reminder) {
+
+    reminderChoice.value = 'none';
+
+    customReminderContainer.style.display =
+      'none';
+
+    return;
+  }
+
+
+  if (task.due_at) {
+
+    const due =
+      new Date(task.due_at);
+
+    const remind =
+      new Date(reminder.remind_at);
+
+    const differenceMinutes =
+      Math.round(
+        (due - remind) / 60000
+      );
+
+    const standardChoices =
+      [0, 5, 15, 30, 60];
+
+    if (
+      standardChoices.includes(
+        differenceMinutes
+      )
+    ) {
+
+      reminderChoice.value =
+        String(differenceMinutes);
+
+      customReminderContainer.style.display =
+        'none';
+
+      return;
+    }
+  }
+
+
+  reminderChoice.value = 'custom';
+
+  customRemindAt.value =
+    reminder.remind_at;
+
+  customReminderContainer.style.display =
+    'block';
+}
 
 // =====================================================
 // Load all tasks
@@ -201,6 +389,17 @@ let editingTaskId = null;
 async function loadTasks() {
 
   const tasks = await window.petAPI.getTasks();
+
+  const reminders =
+    await window.petAPI.getPendingReminders();
+
+  const reminderByTaskId =
+    new Map(
+        reminders.map(reminder => [
+        Number(reminder.task_id),
+        reminder
+        ])
+    );
 
   taskList.innerHTML = '';
 
@@ -280,8 +479,19 @@ async function loadTasks() {
         monthly: window.i18n.t('recurrenceMonthly')
         }[task.recurrence || 'none'];
 
+    const reminder =
+        reminderByTaskId.get(
+            Number(task.id)
+        );
+
+    const reminderText =
+        reminder
+            ? `${window.i18n.t('reminderLabel')}: ${reminder.remind_at}`
+            : window.i18n.t('noReminder');
+
     info.textContent =
         `${dueText} | ` +
+        `${reminderText} | ` +
         `${window.i18n.t('priorityLabel')}: ${priorityText} | ` +
         `${window.i18n.t('recurrenceLabel')}: ${recurrenceText} | ` +
         `${window.i18n.t('statusLabel')}: ${statusText}`;
@@ -303,7 +513,7 @@ async function loadTasks() {
     editButton.textContent =
         window.i18n.t('edit');
 
-    editButton.addEventListener('click', () => {
+    editButton.addEventListener('click', async () => {
 
     // Put existing task information into the form
     document.getElementById('title').value =
@@ -320,6 +530,16 @@ async function loadTasks() {
 
     document.getElementById('recurrence').value =
         task.recurrence || 'none';
+
+    const reminder =
+        await window.petAPI.getReminderForTask(
+            task.id
+        );
+
+    loadReminderIntoForm(
+        task,
+        reminder
+        );
 
     // Remember which task is being edited
     editingTaskId = task.id;
@@ -388,7 +608,6 @@ taskForm.addEventListener('submit', async (event) => {
 
   event.preventDefault();
 
-
   const task = {
 
     title:
@@ -407,22 +626,102 @@ taskForm.addEventListener('submit', async (event) => {
         document.getElementById('recurrence').value
   };
 
+  const reminderSelection =
+    reminderChoice.value;
+
+    if (
+    reminderSelection !== 'none' &&
+    reminderSelection !== 'custom' &&
+    !task.dueAt
+    ) {
+
+    alert(
+        window.i18n.t(
+        'reminderNeedsTaskTime'
+        )
+    );
+
+    return;
+    }
+
+
+    if (
+    reminderSelection === 'custom' &&
+    !customRemindAt.value
+    ) {
+
+    alert(
+        window.i18n.t(
+        'customReminderRequired'
+        )
+    );
+
+    return;
+    }
+
+
+    const remindAt =
+    calculateReminderTime(
+        task.dueAt,
+        reminderSelection,
+        customRemindAt.value
+    );
 
   // -------------------------
   // Edit existing task
   // -------------------------
 
-  if (editingTaskId !== null) {
+    if (editingTaskId !== null) {
 
     task.id = editingTaskId;
 
     await window.petAPI.updateTask(task);
 
+
+    // Existing reminder + user selected no reminder
+    if (
+        editingReminderId !== null &&
+        remindAt === null
+    ) {
+
+        await window.petAPI.deleteReminder(
+        editingReminderId
+        );
+    }
+
+
+    // Existing reminder + new reminder time
+    else if (
+        editingReminderId !== null &&
+        remindAt !== null
+    ) {
+
+        await window.petAPI.updateReminder({
+        id: editingReminderId,
+        remindAt: remindAt
+        });
+    }
+
+
+    // No existing reminder + user adds one
+    else if (
+        editingReminderId === null &&
+        remindAt !== null
+    ) {
+
+        await window.petAPI.addReminder({
+        taskId: editingTaskId,
+        remindAt: remindAt
+        });
+    }
+
+
     editingTaskId = null;
+    editingReminderId = null;
 
     addButton.textContent =
         window.i18n.t('addTask');
-  }
+    }
 
 
   // -------------------------
@@ -431,12 +730,29 @@ taskForm.addEventListener('submit', async (event) => {
 
   else {
 
-    await window.petAPI.addTask(task);
-  }
+    const createdTask =
+        await window.petAPI.addTask(task);
+
+    if (
+        remindAt &&
+        createdTask &&
+        createdTask.id
+    ) {
+
+        await window.petAPI.addReminder({
+        taskId: createdTask.id,
+        remindAt: remindAt
+        });
+    }
+    }
 
 
-  // Clear form
-  taskForm.reset();
+    // Clear form
+    taskForm.reset();
+
+    reminderChoice.value = 'none';
+    customRemindAt.value = '';
+    customReminderContainer.style.display = 'none';
 
   // Then load tasks
   loadTasks();

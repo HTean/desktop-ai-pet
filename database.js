@@ -102,6 +102,62 @@ function getNextDueAt(dueAt, recurrence) {
   return formatLocalDateTime(date);
 }
 
+// =====================================================
+// Calculate next recurring reminder time
+// Keep the same offset from task time
+// =====================================================
+
+function getNextReminderAt(
+  currentDueAt,
+  currentRemindAt,
+  nextDueAt
+) {
+
+  if (
+    !currentDueAt ||
+    !currentRemindAt ||
+    !nextDueAt
+  ) {
+    return null;
+  }
+
+  const currentDue =
+    new Date(currentDueAt);
+
+  const currentReminder =
+    new Date(currentRemindAt);
+
+  const nextDue =
+    new Date(nextDueAt);
+
+  if (
+    Number.isNaN(currentDue.getTime()) ||
+    Number.isNaN(currentReminder.getTime()) ||
+    Number.isNaN(nextDue.getTime())
+  ) {
+    return null;
+  }
+
+
+  // Example:
+  // Task = 15:00
+  // Reminder = 14:45
+  // Offset = 15 minutes
+  const offset =
+    currentDue.getTime() -
+    currentReminder.getTime();
+
+
+  const nextReminder =
+    new Date(
+      nextDue.getTime() - offset
+    );
+
+
+  return formatLocalDateTime(
+    nextReminder
+  );
+}
 
 // =====================================================
 // Initialize database
@@ -118,6 +174,8 @@ function initDatabase(userDataPath) {
 
   // Open database
   db = new DatabaseSync(dbPath);
+
+  db.exec('PRAGMA foreign_keys = ON');
 
 
   // Create table for new installations
@@ -176,6 +234,30 @@ function initDatabase(userDataPath) {
     );
   }
 
+    // =====================================================
+    // Create reminders table
+    // =====================================================
+
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS reminders (
+
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    task_id INTEGER NOT NULL,
+
+    remind_at TEXT NOT NULL,
+
+    status TEXT DEFAULT 'pending',
+
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+
+    fired_at TEXT,
+
+    FOREIGN KEY (task_id)
+        REFERENCES tasks(id)
+        ON DELETE CASCADE
+    )
+    `);
 
   console.log(
     'Database ready:',
@@ -307,7 +389,7 @@ function updateTask(
 
 function completeTask(id) {
 
-  // First get the current task
+  // Get current task
   const task =
     db.prepare(`
       SELECT *
@@ -321,12 +403,25 @@ function completeTask(id) {
   }
 
 
+  // Get current pending reminder before changing anything
+  const currentReminder =
+    db.prepare(`
+      SELECT *
+      FROM reminders
+      WHERE
+        task_id = ?
+        AND status = 'pending'
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(id);
+
+
   db.exec('BEGIN');
 
 
   try {
 
-    // Mark current occurrence completed
+    // Mark current task completed
     const result =
       db.prepare(`
         UPDATE tasks
@@ -346,8 +441,7 @@ function completeTask(id) {
 
 
     // ===============================================
-    // Recurring task
-    // Create next occurrence
+    // Recurring task → create next occurrence
     // ===============================================
 
     if (
@@ -365,24 +459,72 @@ function completeTask(id) {
 
       if (nextDueAt) {
 
-        db.prepare(`
-          INSERT INTO tasks (
-            title,
-            description,
-            due_at,
-            priority,
-            recurrence
-          )
-          VALUES (?, ?, ?, ?, ?)
-        `).run(
-          task.title,
-          task.description,
-          nextDueAt,
-          task.priority,
-          task.recurrence
-        );
+        const nextTaskResult =
+          db.prepare(`
+            INSERT INTO tasks (
+              title,
+              description,
+              due_at,
+              priority,
+              recurrence
+            )
+            VALUES (?, ?, ?, ?, ?)
+          `).run(
+            task.title,
+            task.description,
+            nextDueAt,
+            task.priority,
+            task.recurrence
+          );
+
+
+        const nextTaskId =
+          Number(
+            nextTaskResult.lastInsertRowid
+          );
+
+
+        // ===========================================
+        // Copy reminder to next recurring task
+        // ===========================================
+
+        if (currentReminder) {
+
+          const nextRemindAt =
+            getNextReminderAt(
+              task.due_at,
+              currentReminder.remind_at,
+              nextDueAt
+            );
+
+
+          if (nextRemindAt) {
+
+            db.prepare(`
+              INSERT INTO reminders (
+                task_id,
+                remind_at
+              )
+              VALUES (?, ?)
+            `).run(
+              nextTaskId,
+              nextRemindAt
+            );
+          }
+        }
       }
     }
+
+
+    // ===============================================
+    // Current task is finished:
+    // delete any remaining pending reminder
+    // ===============================================
+
+    db.prepare(`
+    DELETE FROM reminders
+    WHERE task_id = ?
+    `).run(id);
 
 
     db.exec('COMMIT');
@@ -397,6 +539,182 @@ function completeTask(id) {
   }
 }
 
+// =====================================================
+// Add reminder
+// =====================================================
+
+function addReminder(
+  taskId,
+  remindAt
+) {
+
+  const statement =
+    db.prepare(`
+      INSERT INTO reminders (
+        task_id,
+        remind_at
+      )
+      VALUES (?, ?)
+    `);
+
+  const result =
+    statement.run(
+      taskId,
+      remindAt
+    );
+
+  return {
+    id: Number(result.lastInsertRowid),
+    task_id: taskId,
+    remind_at: remindAt,
+    status: 'pending'
+  };
+}
+
+
+// =====================================================
+// Get pending reminders
+// =====================================================
+
+function getPendingReminders() {
+
+  const statement =
+    db.prepare(`
+      SELECT
+        reminders.*,
+        tasks.title AS task_title,
+        tasks.description AS task_description
+
+      FROM reminders
+
+      JOIN tasks
+        ON tasks.id = reminders.task_id
+
+      WHERE reminders.status = 'pending'
+
+      ORDER BY reminders.remind_at ASC
+    `);
+
+  return statement.all();
+}
+
+// =====================================================
+// Get active reminder for one task
+// =====================================================
+
+function getReminderForTask(taskId) {
+
+  const statement =
+    db.prepare(`
+      SELECT *
+      FROM reminders
+      WHERE
+        task_id = ?
+        AND status = 'pending'
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+
+  return statement.get(taskId) || null;
+}
+
+
+// =====================================================
+// Update reminder
+// =====================================================
+
+function updateReminder(
+  id,
+  remindAt
+) {
+
+  const statement =
+    db.prepare(`
+      UPDATE reminders
+      SET
+        remind_at = ?,
+        status = 'pending',
+        fired_at = NULL
+      WHERE id = ?
+    `);
+
+  const result =
+    statement.run(
+      remindAt,
+      id
+    );
+
+  return result.changes > 0;
+}
+
+
+// =====================================================
+// Delete reminder
+// =====================================================
+
+function deleteReminder(id) {
+
+  const statement =
+    db.prepare(`
+      DELETE FROM reminders
+      WHERE id = ?
+    `);
+
+  const result =
+    statement.run(id);
+
+  return result.changes > 0;
+}
+
+// =====================================================
+// Mark reminder fired
+// =====================================================
+
+function markReminderFired(id) {
+
+  const statement =
+    db.prepare(`
+      UPDATE reminders
+      SET
+        status = 'fired',
+        fired_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+
+  const result =
+    statement.run(id);
+
+  return result.changes > 0;
+}
+
+
+// =====================================================
+// Snooze reminder
+// =====================================================
+
+function snoozeReminder(
+  id,
+  remindAt
+) {
+
+  const statement =
+    db.prepare(`
+      UPDATE reminders
+      SET
+        remind_at = ?,
+        status = 'pending',
+        fired_at = NULL
+      WHERE id = ?
+    `);
+
+  const result =
+    statement.run(
+      remindAt,
+      id
+    );
+
+  return result.changes > 0;
+}
 
 // =====================================================
 // Delete task
@@ -424,10 +742,19 @@ function deleteTask(id) {
 // =====================================================
 
 module.exports = {
-  initDatabase,
-  addTask,
-  getTasks,
-  updateTask,
-  completeTask,
-  deleteTask
+    initDatabase,
+
+    addTask,
+    getTasks,
+    updateTask,
+    completeTask,
+    deleteTask,
+
+    addReminder,
+    getPendingReminders,
+    getReminderForTask,
+    updateReminder,
+    deleteReminder,
+    markReminderFired,
+    snoozeReminder
 };

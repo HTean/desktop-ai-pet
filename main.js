@@ -1,3 +1,4 @@
+// Electron import
 const {
   app,
   BrowserWindow,
@@ -6,14 +7,26 @@ const {
   Tray,
   Menu
 } = require('electron');
+
+// Database imports
 const {
   initDatabase,
+
   addTask,
   getTasks,
   updateTask,
   completeTask,
-  deleteTask
+  deleteTask,
+
+  addReminder,
+  getPendingReminders,
+  getReminderForTask,
+  updateReminder,
+  deleteReminder,
+  markReminderFired,
+  snoozeReminder
 } = require('./database');
+
 const { parseTaskText } = require('./taskParser');
 const path = require('path');
 
@@ -35,6 +48,8 @@ let taskWindow = null;
 
 let tray = null;
 
+let reminderCheckTimer = null;
+const activeReminderIds = new Set();
 let dragOffset = null;
 let dragStartMouse = null;
 let lastMouse = null;
@@ -314,6 +329,204 @@ ipcMain.handle('task:delete', (event, id) => {
   return deleteTask(id);
 });
 
+// =====================================================
+// Reminder database IPC
+// =====================================================
+
+// Add reminder
+ipcMain.handle('reminder:add', (event, reminder) => {
+
+  return addReminder(
+    reminder.taskId,
+    reminder.remindAt
+  );
+});
+
+
+// Get pending reminders
+ipcMain.handle('reminder:get-pending', () => {
+  return getPendingReminders();
+});
+
+// Get reminder for one task
+ipcMain.handle('reminder:get-for-task', (event, taskId) => {
+
+  return getReminderForTask(taskId);
+});
+
+
+// Update reminder
+ipcMain.handle('reminder:update', (event, reminder) => {
+
+  return updateReminder(
+    reminder.id,
+    reminder.remindAt
+  );
+});
+
+
+// Delete reminder
+ipcMain.handle('reminder:delete', (event, id) => {
+
+  return deleteReminder(id);
+});
+
+// Mark reminder fired
+ipcMain.handle('reminder:mark-fired', (event, id) => {
+
+  const result =
+    markReminderFired(id);
+
+  if (result) {
+    activeReminderIds.delete(
+      Number(id)
+    );
+  }
+
+  return result;
+});
+
+
+// Snooze reminder
+ipcMain.handle('reminder:snooze', (event, reminder) => {
+
+  const result =
+    snoozeReminder(
+      reminder.id,
+      reminder.remindAt
+    );
+
+  if (result) {
+    activeReminderIds.delete(
+      Number(reminder.id)
+    );
+  }
+
+  return result;
+});
+
+// =====================================================
+// Reminder checker
+// =====================================================
+
+function checkDueReminders() {
+
+  // Pet window is not ready yet
+  if (
+    !win ||
+    win.isDestroyed() ||
+    win.webContents.isLoading()
+  ) {
+    return;
+  }
+
+
+  const reminders =
+    getPendingReminders();
+
+  const now =
+    new Date();
+
+
+  reminders.forEach((reminder) => {
+
+    const reminderId =
+      Number(reminder.id);
+
+    const remindAt =
+      new Date(reminder.remind_at);
+
+
+    // Invalid date
+    if (
+      Number.isNaN(remindAt.getTime())
+    ) {
+      return;
+    }
+
+
+    // Not due yet
+    if (remindAt > now) {
+      return;
+    }
+
+
+    // Already shown and waiting for user action
+    if (
+      activeReminderIds.has(
+        reminderId
+      )
+    ) {
+      return;
+    }
+
+
+    activeReminderIds.add(
+      reminderId
+    );
+
+
+    try {
+
+      // If pet was hidden, bring it back
+      // without stealing keyboard focus
+      if (!win.isVisible()) {
+        win.showInactive();
+      }
+
+
+      // Send reminder to pet renderer
+      win.webContents.send(
+        'reminder:due',
+        {
+          id: reminderId,
+
+          task_id:
+            Number(reminder.task_id),
+
+          task_title:
+            reminder.task_title,
+
+          task_description:
+            reminder.task_description || '',
+
+          remind_at:
+            reminder.remind_at
+        }
+      );
+
+    } catch (error) {
+
+      activeReminderIds.delete(
+        reminderId
+      );
+
+      console.error(
+        'Failed to show pet reminder:',
+        error
+      );
+    }
+  });
+}
+
+// =====================================================
+// Start reminder checker
+// =====================================================
+
+function startReminderChecker() {
+
+  // Check immediately
+  checkDueReminders();
+
+
+  // Then check every 10 seconds
+  reminderCheckTimer =
+    setInterval(
+      checkDueReminders,
+      10 * 1000
+    );
+}
+
 app.whenReady().then(() => {
 
   // Initialize local SQLite database
@@ -324,6 +537,8 @@ app.whenReady().then(() => {
 
   // 创建系统托盘
   createTray();
+  // Start reminder checker
+  startReminderChecker();
 
 
   // -------------------------

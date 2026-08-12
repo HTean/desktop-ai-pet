@@ -96,14 +96,19 @@
     }
 
     /* Task confirmation buttons */
-    #confirmActions {
+    #confirmActions,
+    #reminderActions,
+    #snoozeActions {
       margin-top: 8px;
       display: flex;
       justify-content: center;
       gap: 8px;
+      flex-wrap: wrap;
     }
 
-    #confirmActions button {
+    #confirmActions button,
+    #reminderActions button,
+    #snoozeActions button {
       padding: 5px 12px;
       border: 1px solid #ccc;
       border-radius: 7px;
@@ -111,7 +116,9 @@
       cursor: pointer;
     }
 
-    #confirmActions button:hover {
+    #confirmActions button:hover,
+    #reminderActions button:hover,
+    #snoozeActions button:hover {
       background: #f0f0f0;
     }
 
@@ -139,6 +146,26 @@
   <div id="confirmActions" style="display: none;">
     <button id="confirmYes">Yes</button>
     <button id="confirmNo">No</button>
+  </div>
+
+  <!-- Reminder actions -->
+  <div id="reminderActions" style="display: none;">
+    <button id="reminderComplete">
+      Complete
+    </button>
+
+    <button id="reminderLater">
+      Later
+    </button>
+  </div>
+
+
+  <!-- Snooze choices -->
+  <div id="snoozeActions" style="display: none;">
+    <button id="snooze5">5m</button>
+    <button id="snooze15">15m</button>
+    <button id="snooze30">30m</button>
+    <button id="snooze60">60m</button>
   </div>
 
 </div>
@@ -172,6 +199,43 @@ const confirmYes =
 
 const confirmNo =
   document.getElementById('confirmNo');
+
+const reminderActions =
+  document.getElementById(
+    'reminderActions'
+  );
+
+const reminderComplete =
+  document.getElementById(
+    'reminderComplete'
+  );
+
+const reminderLater =
+  document.getElementById(
+    'reminderLater'
+  );
+
+const snoozeActions =
+  document.getElementById(
+    'snoozeActions'
+  );
+
+const snooze5 =
+  document.getElementById('snooze5');
+
+const snooze15 =
+  document.getElementById('snooze15');
+
+const snooze30 =
+  document.getElementById('snooze30');
+
+const snooze60 =
+  document.getElementById('snooze60');
+
+
+let currentReminder = null;
+
+const reminderQueue = [];
 
 // 暂时保存等待用户确认的任务
 let pendingTask = null;
@@ -527,6 +591,9 @@ window.addEventListener('pointerup', async () => {
 
 function talk() {
 
+    // Reminder has priority over normal speech
+  if (currentReminder) return;
+
   resetSleepTimer();
 
   stopWagging();
@@ -579,6 +646,9 @@ function talk() {
 // =====================================================
 
 pet.addEventListener('dblclick', () => {
+
+    // Do not replace an active reminder with Chat
+    if (currentReminder) return;
 
     pendingTask = null;
     confirmActions.style.display = 'none';
@@ -871,10 +941,295 @@ confirmNo.addEventListener('click', () => {
 });
 
 // =====================================================
+// Pet Reminder System
+// =====================================================
+
+function formatReminderDateTime(date) {
+
+  const pad = value =>
+    String(value).padStart(2, '0');
+
+  return (
+    date.getFullYear() +
+    '-' +
+    pad(date.getMonth() + 1) +
+    '-' +
+    pad(date.getDate()) +
+    'T' +
+    pad(date.getHours()) +
+    ':' +
+    pad(date.getMinutes())
+  );
+}
+
+
+// =====================================================
+// Show next queued reminder
+// =====================================================
+
+function showNextReminder() {
+
+  if (
+    currentReminder ||
+    reminderQueue.length === 0
+  ) {
+    return;
+  }
+
+
+  currentReminder =
+    reminderQueue.shift();
+
+
+  // Reminder takes priority over Chat / task confirmation
+  pendingTask = null;
+  isChatOpen = false;
+
+  clearTimeout(
+    singleClickTimer
+  );
+
+  clearTimeout(
+    bubbleTimer
+  );
+
+
+  confirmActions.style.display =
+    'none';
+
+  chatInput.value = '';
+  chatInput.style.display =
+    'none';
+
+
+  snoozeActions.style.display =
+    'none';
+
+  reminderActions.style.display =
+    'flex';
+
+
+  bubble.classList.add(
+    'chat-mode'
+  );
+
+
+  bubbleText.textContent =
+    window.i18n.t(
+      'reminderDue',
+      {
+        title:
+          currentReminder.task_title
+      }
+    );
+
+
+  // Keep pet awake while reminder is active
+  isSleeping = false;
+  isTalking = true;
+
+  stopWagging();
+
+  showImage('talk');
+
+  bubble.style.display =
+    'block';
+
+  resetSleepTimer();
+}
+
+
+// =====================================================
+// Close current reminder
+// =====================================================
+
+function closeCurrentReminder() {
+
+  reminderActions.style.display =
+    'none';
+
+  snoozeActions.style.display =
+    'none';
+
+  bubble.style.display =
+    'none';
+
+  bubble.classList.remove(
+    'chat-mode'
+  );
+
+
+  currentReminder = null;
+
+  isTalking = false;
+
+  restoreState();
+
+  resetSleepTimer();
+
+
+  // If several reminders became due together,
+  // show the next one
+  showNextReminder();
+}
+
+
+// =====================================================
+// Complete reminder task
+// =====================================================
+
+reminderComplete.addEventListener(
+  'click',
+  async () => {
+
+    if (!currentReminder) {
+      return;
+    }
+
+
+    const reminder =
+      currentReminder;
+
+
+    await window.petAPI.completeTask(
+      reminder.task_id
+    );
+
+    closeCurrentReminder();
+  }
+);
+
+
+// =====================================================
+// Later button
+// =====================================================
+
+reminderLater.addEventListener(
+  'click',
+  () => {
+
+    if (!currentReminder) {
+      return;
+    }
+
+
+    reminderActions.style.display =
+      'none';
+
+    snoozeActions.style.display =
+      'flex';
+  }
+);
+
+
+// =====================================================
+// Snooze
+// =====================================================
+
+async function snoozeCurrentReminder(
+  minutes
+) {
+
+  if (!currentReminder) {
+    return;
+  }
+
+
+  const reminder =
+    currentReminder;
+
+
+  const newTime =
+    new Date(
+      Date.now() +
+      minutes * 60 * 1000
+    );
+
+
+  await window.petAPI.snoozeReminder({
+    id: reminder.id,
+
+    remindAt:
+      formatReminderDateTime(
+        newTime
+      )
+  });
+
+
+  closeCurrentReminder();
+}
+
+
+snooze5.addEventListener(
+  'click',
+  () => snoozeCurrentReminder(5)
+);
+
+snooze15.addEventListener(
+  'click',
+  () => snoozeCurrentReminder(15)
+);
+
+snooze30.addEventListener(
+  'click',
+  () => snoozeCurrentReminder(30)
+);
+
+snooze60.addEventListener(
+  'click',
+  () => snoozeCurrentReminder(60)
+);
+
+
+// =====================================================
+// Receive reminder from main process
+// =====================================================
+
+window.petAPI.onReminderDue(
+  (reminder) => {
+
+    const reminderId =
+      Number(reminder.id);
+
+
+    // Prevent duplicates
+    if (
+      currentReminder &&
+      Number(currentReminder.id) ===
+        reminderId
+    ) {
+      return;
+    }
+
+
+    if (
+      reminderQueue.some(
+        item =>
+          Number(item.id) ===
+          reminderId
+      )
+    ) {
+      return;
+    }
+
+
+    reminderQueue.push(
+      reminder
+    );
+
+
+    showNextReminder();
+  }
+);
+
+// =====================================================
 // 点击奶牛窗口外 → 关闭对话框
 // =====================================================
 
 window.addEventListener('blur', () => {
+
+  // Reminder stays until user chooses an action
+  if (currentReminder) return;
 
   isChatOpen = false;
 
@@ -930,6 +1285,24 @@ document.addEventListener('contextmenu', (event) => {
 // Apply current language to confirmation buttons
 confirmYes.textContent = window.i18n.t('yes');
 confirmNo.textContent = window.i18n.t('no');
+
+reminderComplete.textContent =
+  window.i18n.t('complete');
+
+reminderLater.textContent =
+  window.i18n.t('reminderLater');
+
+snooze5.textContent =
+  window.i18n.t('snooze5');
+
+snooze15.textContent =
+  window.i18n.t('snooze15');
+
+snooze30.textContent =
+  window.i18n.t('snooze30');
+
+snooze60.textContent =
+  window.i18n.t('snooze60');
 
 showImage('idle');
 

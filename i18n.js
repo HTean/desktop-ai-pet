@@ -68,7 +68,28 @@ const translations = {
     recurrenceDaily: "Daily",
     recurrenceWeekly: "Weekly",
     recurrenceMonthly: "Monthly",
-    delete: "Delete"
+    delete: "Delete",
+
+    reminderDue: "Time to do: {title}",
+    reminderLater: "Later",
+    snooze5: "5 min",
+    snooze15: "15 min",
+    snooze30: "30 min",
+    snooze60: "1 hour",
+
+    taskTimeLabel: "Task time",
+    reminderLabel: "Reminder",
+    reminderNone: "No reminder",
+    reminderAtTime: "At task time",
+    reminder5Minutes: "5 minutes before",
+    reminder15Minutes: "15 minutes before",
+    reminder30Minutes: "30 minutes before",
+    reminder1Hour: "1 hour before",
+    reminderCustom: "Custom time",
+    customReminderLabel: "Custom reminder time",
+    noReminder: "No reminder",
+    reminderNeedsTaskTime: "Set a task time first.",
+    customReminderRequired: "Choose a custom reminder time."
   },
 
 
@@ -137,7 +158,28 @@ const translations = {
     recurrenceDaily: "每天",
     recurrenceWeekly: "每周",
     recurrenceMonthly: "每月",
-    delete: "删除"
+    delete: "删除",
+
+    reminderDue: "该做：{title} 了。",
+    reminderLater: "稍后",
+    snooze5: "5分钟",
+    snooze15: "15分钟",
+    snooze30: "30分钟",
+    snooze60: "1小时",
+
+    taskTimeLabel: "任务时间",
+    reminderLabel: "提醒",
+    reminderNone: "不提醒",
+    reminderAtTime: "准时提醒",
+    reminder5Minutes: "提前5分钟",
+    reminder15Minutes: "提前15分钟",
+    reminder30Minutes: "提前30分钟",
+    reminder1Hour: "提前1小时",
+    reminderCustom: "自定义时间",
+    customReminderLabel: "自定义提醒时间",
+    noReminder: "不提醒",
+    reminderNeedsTaskTime: "请先设置任务时间。",
+    customReminderRequired: "请选择自定义提醒时间。"
   }
 
 };

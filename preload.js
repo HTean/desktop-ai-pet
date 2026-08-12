@@ -50,6 +50,62 @@ contextBridge.exposeInMainWorld('petAPI', {
 
   deleteTask: (id) => {
     return ipcRenderer.invoke('task:delete', id);
+  },
+
+  // -------------------------
+  // Reminder database API
+  // -------------------------
+
+  addReminder: (reminder) => {
+    return ipcRenderer.invoke('reminder:add', reminder);
+  },
+
+  getPendingReminders: () => {
+    return ipcRenderer.invoke('reminder:get-pending');
+  },
+
+  getReminderForTask: (taskId) => {
+    return ipcRenderer.invoke(
+      'reminder:get-for-task',
+      taskId
+    );
+  },
+
+  updateReminder: (reminder) => {
+    return ipcRenderer.invoke(
+      'reminder:update',
+      reminder
+    );
+  },
+
+  deleteReminder: (id) => {
+    return ipcRenderer.invoke(
+      'reminder:delete',
+      id
+    );
+  },
+
+  markReminderFired: (id) => {
+    return ipcRenderer.invoke('reminder:mark-fired', id);
+  },
+
+  snoozeReminder: (reminder) => {
+    return ipcRenderer.invoke(
+      'reminder:snooze',
+      reminder
+    );
+  },
+
+  // Main process → pet reminder
+  onReminderDue: (callback) => {
+
+    ipcRenderer.on(
+      'reminder:due',
+      (_event, reminder) => {
+
+        callback(reminder);
+      }
+    );
   }
 
-});
+  });
