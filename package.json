@@ -25,7 +25,7 @@
   "type": "commonjs",
   "devDependencies": {
     "electron": "^43.3.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.7"
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true

@@ -186,16 +186,19 @@ const translations = {
 
 
 // =====================================================
-// Development default
-//
-// For now:
-// en = English
-// zh = Chinese
-//
-// Later this will come from Settings / first-run setup.
+// Language
 // =====================================================
 
-let currentLanguage = 'en';
+const requestedLanguage =
+  new URLSearchParams(
+    window.location.search
+  ).get('lang');
+
+
+let currentLanguage =
+  translations[requestedLanguage]
+    ? requestedLanguage
+    : 'en';
 
 
 // =====================================================

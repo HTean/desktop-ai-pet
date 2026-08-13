@@ -29,6 +29,7 @@ const {
 
 const { parseTaskText } = require('./taskParser');
 const path = require('path');
+const fs = require('fs');
 
 const appIcon = path.join(
     __dirname,
@@ -48,12 +49,166 @@ let taskWindow = null;
 
 let tray = null;
 
+let currentLanguage = 'en';
+let settingsPath = null;
+
 let reminderCheckTimer = null;
 const activeReminderIds = new Set();
 let dragOffset = null;
 let dragStartMouse = null;
 let lastMouse = null;
 let didMove = false;
+
+// =====================================================
+// App settings
+// =====================================================
+
+function loadSettings() {
+
+  settingsPath =
+    path.join(
+      app.getPath('userData'),
+      'settings.json'
+    );
+
+  try {
+
+    const settings =
+      JSON.parse(
+        fs.readFileSync(
+          settingsPath,
+          'utf8'
+        )
+      );
+
+    if (
+      settings.language === 'en' ||
+      settings.language === 'zh'
+    ) {
+
+      currentLanguage =
+        settings.language;
+    }
+
+  } catch (error) {
+
+    if (error.code !== 'ENOENT') {
+
+      console.error(
+        'Failed to load settings:',
+        error
+      );
+    }
+  }
+}
+
+
+function saveSettings() {
+
+  if (!settingsPath) return;
+
+  let settings = {};
+
+  try {
+
+    settings =
+      JSON.parse(
+        fs.readFileSync(
+          settingsPath,
+          'utf8'
+        )
+      );
+
+  } catch (error) {
+
+    settings = {};
+  }
+
+
+  settings.language =
+    currentLanguage;
+
+
+  fs.writeFileSync(
+    settingsPath,
+    JSON.stringify(
+      settings,
+      null,
+      2
+    ),
+    'utf8'
+  );
+}
+
+
+function changeLanguage(language) {
+
+  if (
+    language !== 'en' &&
+    language !== 'zh'
+  ) {
+    return;
+  }
+
+
+  if (
+    currentLanguage === language
+  ) {
+    return;
+  }
+
+
+  currentLanguage =
+    language;
+
+  saveSettings();
+
+
+  // Rebuild tray menu
+  if (tray) {
+
+    tray.setContextMenu(
+      buildTrayMenu()
+    );
+  }
+
+
+  // If a reminder was visible,
+  // allow the checker to show it again after reload
+  activeReminderIds.clear();
+
+
+  if (
+    win &&
+    !win.isDestroyed()
+  ) {
+
+    win.loadFile(
+      'index.html',
+      {
+        query: {
+          lang: currentLanguage
+        }
+      }
+    );
+  }
+
+
+  if (
+    taskWindow &&
+    !taskWindow.isDestroyed()
+  ) {
+
+    taskWindow.loadFile(
+      'tasks.html',
+      {
+        query: {
+          lang: currentLanguage
+        }
+      }
+    );
+  }
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -74,7 +229,14 @@ function createWindow() {
     }
   });
 
-  win.loadFile('index.html');
+  win.loadFile(
+    'index.html',
+    {
+      query: {
+        lang: currentLanguage
+      }
+    }
+  );
   win.center();
 }
 
@@ -109,7 +271,14 @@ function createTaskWindow() {
   });
 
 
-  taskWindow.loadFile('tasks.html');
+  taskWindow.loadFile(
+    'tasks.html',
+    {
+      query: {
+        lang: currentLanguage
+      }
+    }
+  );
 
 
   // Allow it to be created again after closing
@@ -122,52 +291,104 @@ function createTaskWindow() {
 // 创建 Windows 系统托盘
 // -------------------------
 
-function createTray() {
+function getTrayLabels() {
 
-  // 目前先使用桌宠 idle 图片作为托盘图标
-  const trayIcon = path.join(
-    __dirname,
-    'assets',
-    'pet',
-    'idle.png'
-  );
+  if (currentLanguage === 'zh') {
 
-  tray = new Tray(trayIcon);
+    return {
+      tasks: '任务',
+      language: '语言',
+      showPet: '显示奶牛',
+      hidePet: '隐藏奶牛',
+      quit: '退出'
+    };
+  }
 
 
-  // 右键菜单
-  const contextMenu = Menu.buildFromTemplate([
+  return {
+    tasks: 'Tasks',
+    language: 'Language',
+    showPet: 'Show Pet',
+    hidePet: 'Hide Pet',
+    quit: 'Quit'
+  };
+}
+
+
+function buildTrayMenu() {
+
+  const labels =
+    getTrayLabels();
+
+
+  return Menu.buildFromTemplate([
 
     {
-      label: 'Tasks',
+      label: labels.tasks,
 
       click: () => {
         createTaskWindow();
       }
     },
 
+
     {
-      label: 'Show Pet',
+      label: labels.language,
+
+      submenu: [
+
+        {
+          label: 'English',
+          type: 'radio',
+
+          checked:
+            currentLanguage === 'en',
+
+          click: () => {
+            changeLanguage('en');
+          }
+        },
+
+        {
+          label: '中文',
+          type: 'radio',
+
+          checked:
+            currentLanguage === 'zh',
+
+          click: () => {
+            changeLanguage('zh');
+          }
+        }
+      ]
+    },
+
+
+    {
+      label: labels.showPet,
 
       click: () => {
         win.show();
       }
     },
 
+
     {
-      label: 'Hide Pet',
+      label: labels.hidePet,
 
       click: () => {
         win.hide();
       }
     },
 
+
     {
       type: 'separator'
     },
 
+
     {
-      label: 'Quit',
+      label: labels.quit,
 
       click: () => {
         app.quit();
@@ -175,17 +396,34 @@ function createTray() {
     }
 
   ]);
+}
 
 
-  // 鼠标放到托盘图标上显示的文字
-  tray.setToolTip('AI Desktop Pet');
+function createTray() {
+
+  const trayIcon =
+    path.join(
+      __dirname,
+      'assets',
+      'pet',
+      'idle.png'
+    );
 
 
-  // 设置右键菜单
-  tray.setContextMenu(contextMenu);
+  tray =
+    new Tray(trayIcon);
 
 
-  // 左键点击托盘图标：显示宠物
+  tray.setToolTip(
+    'AI Desktop Pet'
+  );
+
+
+  tray.setContextMenu(
+    buildTrayMenu()
+  );
+
+
   tray.on('click', () => {
     win.show();
   });
@@ -529,6 +767,9 @@ function startReminderChecker() {
 
 app.whenReady().then(() => {
 
+   // Load saved language first
+  loadSettings();
+  
   // Initialize local SQLite database
   initDatabase(app.getPath('userData'));
 
